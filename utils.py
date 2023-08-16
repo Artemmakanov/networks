@@ -45,17 +45,10 @@ class Port():
     Порт коммутатора
     """
 
-    ROLE_ROOT = "Root Port"
-    ROLE_UNDESG = "Undesignated"
-    ROLE_DESG = "Designated"
-
-    ST_FORWARD = "Forwarding"
-    ST_BLOCKED = "Blocked"
-
     ROLE_STATUS_MAP = {
-        ROLE_ROOT: ST_FORWARD,
-        ROLE_DESG: ST_FORWARD,
-        ROLE_UNDESG: ST_BLOCKED
+        "Root Port": "Forwarding",
+        "Designated": "Forwarding",
+        "Undesignated": "Blocked"
     }
     
     def __init__(self, id, cost):
@@ -66,8 +59,8 @@ class Port():
 
     def resetSTP(self) -> None:
         self.best_bpdu = None
-        self.role = Port.ROLE_UNDESG
-        self.status = Port.ST_BLOCKED
+        self.role = "Undesignated"
+        self.status = "Blocked"
         self.rpc = None
 
     def setRemote(self, remote)-> None:
@@ -185,7 +178,7 @@ class Bridge():
             for port in self.ports:
                 self.best_bpdu.send_port_id = port.id
                 port.sendBPDU(self.best_bpdu)
-                port.setRole(Port.ROLE_DESG)
+                port.setRole("Designated")
  
         else:
             for port in self.ports:
@@ -193,15 +186,15 @@ class Bridge():
                 if self.best_bpdu.getBest(port.best_bpdu) == self.best_bpdu:
           
                     port.sendBPDU(self.best_bpdu)
-                    port.setRole(Port.ROLE_DESG)
+                    port.setRole("Designated")
                     port.rpc = None
 
                 elif port.id == self.root_port:
                     port.rpc = self.best_bpdu.rpc
-                    port.setRole(Port.ROLE_ROOT)
+                    port.setRole("Root Port")
                 else:
                     port.rpc = None
-                    port.setRole(Port.ROLE_UNDESG)
+                    port.setRole("Undesignated")
 
 
 class Network():

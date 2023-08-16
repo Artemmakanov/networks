@@ -3,7 +3,7 @@ import pickle
 
 import networkx as nx
 
-class BPDU():
+class frameBPDU():
     def __init__(self, 
         root_bid: str,
         rpc: int,
@@ -66,12 +66,12 @@ class Port():
     def setRemote(self, remote)-> None:
         self.remote_port = remote
 
-    def sendBPDU(self, b: BPDU)-> None:
+    def sendBPDU(self, b: frameBPDU)-> None:
         # сохраняем superior BPDU
         self.best_bpdu = self.best_bpdu.getBest(b) if self.best_bpdu else b
         self.remote_port.receiveBPDU(b)
 
-    def receiveBPDU(self, b: BPDU)-> None:
+    def receiveBPDU(self, b: frameBPDU)-> None:
         # сохраняем superior BPDU
         self.best_bpdu = self.best_bpdu.getBest(b) if self.best_bpdu else b
 
@@ -103,7 +103,7 @@ class Bridge():
         корневой, и посылает стратовый BPDU на каждый порт
         """
 
-        self.best_bpdu = BPDU(self.bid, 0, self.bid, 0)
+        self.best_bpdu = frameBPDU(self.bid, 0, self.bid, 0)
         self.root = True
         self.root_port = None
 
@@ -126,11 +126,11 @@ class Bridge():
 
         # Создаем на каждый порт по BPDU, каждое BPDU рассчитывается 
         # на основе наименьшего BPDU и цены интерфейса, и id порта.
-        best = [BPDU(port.best_bpdu.root_bid, port.best_bpdu.rpc + \
+        best = [frameBPDU(port.best_bpdu.root_bid, port.best_bpdu.rpc + \
                      port.cost, self.bid, port.id) for port in self.ports if port.best_bpdu]
 
         # Выбор наименьшего BPDU между всеми портами
-        best_bpdu = BPDU(self.bid, 0, self.bid, 0)
+        best_bpdu = frameBPDU(self.bid, 0, self.bid, 0)
         root_port = None
         for b in best:
             if b.getBest(best_bpdu) == b:

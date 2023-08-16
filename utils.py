@@ -28,11 +28,8 @@ class frameBPDU():
 
         if not other:
             return self
-
         _bpdu = (self.root_bid, self.rpc, self.sender_bid, self.send_port_id)
-        
         _bpdu_other = (other.root_bid, other.rpc, other.sender_bid, other.send_port_id)
-        
         return self if _bpdu <= _bpdu_other else other
 
 
@@ -121,9 +118,7 @@ class Bridge():
         продолжит посылать BPDU на эти порты и передавать пакеты
         данных.
         """
-
         
-
         # Создаем на каждый порт по BPDU, каждое BPDU рассчитывается 
         # на основе наименьшего BPDU и цены интерфейса, и id порта.
         best = [frameBPDU(port.best_bpdu.root_bid, port.best_bpdu.rpc + \
@@ -240,27 +235,19 @@ class Network():
         G = nx.Graph()
         G.add_edges_from([(br1.bid, br2.bid) for br1, br2, _, _, _ in self.edges])
 
-   
         positions = nx.kamada_kawai_layout(G, scale=3) #seed
         edge_labels = {}
-    
         for edge in self.edges:
             br1, br2, local, remote, cost = edge
-
             edge_labels[(br1.bid, br2.bid)] = cost
-
-
             if local.status == 'Blocked' or remote.status == 'Blocked':
                 G.edges[br1.bid, br2.bid]['color'] = 'r'
             else:
                 G.edges[br1.bid, br2.bid]['color'] = 'b'
                                
         labels = {bid : f"{self.bridges[bid].name}\n{self.bridges[bid].root_bid}\n{self.bridges[bid].best_bpdu.rpc}" for bid in positions.keys()}
-
         nx.draw_networkx_labels(G, positions, labels=labels)
-
         _,colors = zip(*nx.get_edge_attributes(G,'color').items())
-
 
         return G, positions, edge_labels, colors
 

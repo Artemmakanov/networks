@@ -348,7 +348,7 @@ class Network():
             # statuses = ('Blocked', 'Listening', 'Learning') 
             if local.broken and remote.broken:
                 G.edges[br1.bid, br2.bid]['color'] = 'black'
-            elif local.status == 'Forwarding' and remote.status == 'Forwarding' or br1.bid == br2.bid:
+            elif local.status == 'Forwarding' and remote.status == 'Forwarding' and br1.bid != br2.bid:
                 G.edges[br1.bid, br2.bid]['color'] = 'blue'
             # elif local.status in statuses or remote.status in statuses: # or self.evolving:
             else:

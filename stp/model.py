@@ -44,7 +44,7 @@ def gen_cost():
 def find_convergence(num_nodes,
         num_edges,
         max_steps,
-        verbose,
+        verbose=False,
         edgeid=None,
         mystp=False,
         rstp=True):

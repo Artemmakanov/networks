@@ -12,8 +12,8 @@ from matplotlib import animation
 import random
 
 
-alphabet = 'abcdefghijklmnopqrstuvwxyz'+'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
-alphabet += 'абвгдеёжзийклмнопрстуфхцчшщъыьэюя'
+# alphabet = 'abcdefghijklmnopqrstuvwxyz'+'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+alphabet = 'абвгдеёжзийклмнопрстуфхцчшщъыьэюя'
 alphabet += 'АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ'  
 
 def gen_nodes(num, verbose):
@@ -41,7 +41,13 @@ def gen_cost():
 
 
 
-def find_convergence(num_nodes, num_edges, max_steps, verbose):
+def find_convergence(num_nodes,
+        num_edges,
+        max_steps,
+        verbose,
+        edgeid=None,
+        mystp=False,
+        rstp=True):
 
     assert num_nodes * (num_nodes - 1) / 2 >= num_edges
 
@@ -70,11 +76,10 @@ def find_convergence(num_nodes, num_edges, max_steps, verbose):
 
         port_list[local] += 1
         port_list[remote] += 1
-
         
-    net = Network()
+    net = Network(mystp=mystp, rstp=rstp)  
 
-    nodes = {}
+    nodes = {}  
 
     for label, (priority, mac) in nodes_data:
         nodes[label] = priority + mac
@@ -88,59 +93,90 @@ def find_convergence(num_nodes, num_edges, max_steps, verbose):
 
         g1 = net.getBridge(src_node, nodes[src_node])
         g2 = net.getBridge(dst_node, nodes[dst_node])
-        net.connect(g1, src_port, g2, dst_port, speed)
-
-
+        net.connect(g1, src_port, g2, dst_port, speed)    
 
     for br in net.getAllBridges():
         br.launch()
 
-        # Start STP
-    for num in tqdm(range(max_steps), leave=verbose):
+    G, _, _, _ = net.drawG()
+    plt.close()
+
+    subgraph_dim = None
+    nb_nodes = G.number_of_nodes()
+    while not subgraph_dim and nb_nodes >= 2:
+        nb_nodes -= 1
+        for SG in (G.subgraph(selected_nodes) for selected_nodes in itertools.combinations(G, nb_nodes)):
+            # print(nb_nodes)
+            if nx.is_connected(SG):
+                subgraph_dim = nx.diameter(SG)
+                break
+    
+    cutted = False
+    for step in tqdm(range(max_steps), leave=verbose):
+
         net.evolvs(False)
         for br in net.getAllBridges():
             br.processBPDUs(net)
-
         for br in net.getAllBridges():
-            br.sendBPDUs()
+            br.sendBPDUs(net)
 
-        if num != 0 and not (net.evolving):
+        if step and not net.evolving:          
             if verbose:
-                print(f'STOPPED! at {num}')
-            return net, num
-    return net, max_steps
+                print(f'STOPPED! at {step}')
+            # return net, step, subgraph_dim
+            if edgeid is None:
+                return net, step, subgraph_dim
+            
+            elif not cutted:
+                cutted = True
+                convergence_1 = step
+                subgraph_dim_1 = subgraph_dim
+                
+                net.cut_edge(onbids=False, edgeid=edgeid)
+            else:
+                return net, convergence_1, subgraph_dim_1, step, subgraph_dim
+                
+    assert 'TIME LIMIT!'
         
 
-def draw_stp(net, name_file, steps_convergence):
+def draw_stp(net, name_file,
+        steps_convergence,
+        broke_time=None,
+        bid1=None, 
+        bid2=None, 
+        edgeid=None):
         
     for br in net.getAllBridges():
         br.launch()
 
-    def simple_update(num, ax):
+    def simple_update(step, ax):
         ax.clear()
-        
+
         G, positions, edge_labels, colors = net.drawG()
-
-
         nx.draw_networkx_edge_labels(
                 G, positions,
                 edge_labels=edge_labels,
-                ax=ax
-            )
-        nx.draw(G, pos=positions, ax=ax, 
-                edge_color=colors)
+                ax=ax)
+        nx.draw(G, pos=positions, ax=ax, edge_color=colors)
 
-        ax.set_title("Frame {}".format(num))
+        ax.set_title("Frame {}".format(step))
         
         net.evolvs(False)
-        for br in net.getAllBridges():
-            br.processBPDUs(net)
+
+        if broke_time and step == broke_time:
+            if edgeid:
+                net.cut_edge(onbids=False, edgeid=edgeid)
+            elif bid1 and bid2:
+                net.cut_edge(onbids=True, bid1=bid1, bid2=bid2)
+            
 
         for br in net.getAllBridges():
-            br.sendBPDUs()
-        
-    
-            
+            br.processBPDUs(net)
+            # print(br.best_bpdu)
+
+        for br in net.getAllBridges():
+            br.sendBPDUs(net)
+
 
     # Build plot
     fig, ax = plt.subplots(figsize=(25,15))

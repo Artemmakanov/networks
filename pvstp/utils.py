@@ -89,12 +89,13 @@ class Port():
         "Undesignated": "Blocked"
     }
     
-    def __init__(self, id, cost, rstp):
+    def __init__(self, id, cost, rstp, FORWARD_DELAY):
         self.id = id
         self.cost = cost
         self.remote_port = None
         self.broken = False
         self.rstp = rstp
+        self.FORWARD_DELAY = FORWARD_DELAY
         self.resetSTP()
 
     def resetSTP(self) -> None:
@@ -102,6 +103,7 @@ class Port():
         self.role = "Undesignated"
         self.status = "Blocked"
         self.rpc = None
+        self.timer = self.FORWARD_DELAY
 
     def setRemote(self, remote)-> None:
         self.remote_port = remote
@@ -117,13 +119,27 @@ class Port():
 
     def setRole(self, role: str)-> None:
         # обновление роли и статуса
-        self.role = role
-        status = self.ROLE_STATUS_MAP_RSTP[role] if self.rstp else self.ROLE_STATUS_MAP_STP[role]
-        self.status = status[self.status] if type(status) == dict else status
+        if self.delay():
+            self.role = role
+            status = self.ROLE_STATUS_MAP_RSTP[role] if self.rstp else self.ROLE_STATUS_MAP_STP[role]
+            self.status = status[self.status] if type(status) == dict else status
+            self.timer = self.FORWARD_DELAY
+            if self.status in ['Blocked', 'Forwarding']:
+                changed = False
+            else:
+                changed = True
+        else:
+            changed = True
+        return (self.status, changed)
      
     def broke(self):
         self.broken = True
 
+    def delay(self):
+        if self.timer > 0:
+            self.timer -= 1
+        return self.timer == 0
+    
     def __repr__(self):
         return f"{self.id} {self.status}"
 
@@ -215,39 +231,45 @@ class Bridge():
             self.root_bid = new_root_bid     
 
     def sendBPDUs(self, net) -> None:
-        if self.delay():
-            if self.root:
-        
-                for port in self.ports:
-                    if not port.broken:
+        delay = self.delay()
+        port_status_changed = []
+        if self.root:
+    
+            for port in self.ports:
+                if not port.broken:
+                    if delay:
                         self.best_bpdu.send_port_id = port.id
                         port.sendBPDU(self.best_bpdu)
-                        if not net.evolving:
-                            port.setRole("Designated")
+                    
+                    port_status_changed += [port.setRole("Designated")]
 
-            else:
-                for port in self.ports:
-                    if not port.broken:
-                        if self.best_bpdu.getBest(port.best_bpdu) == self.best_bpdu and \
-                            not (port.best_bpdu and port.best_bpdu.type and self.best_bpdu.type):
+        else:
+            for port in self.ports:
+                if not port.broken:
+                    if self.best_bpdu.getBest(port.best_bpdu) == self.best_bpdu and \
+                        not (port.best_bpdu and port.best_bpdu.type and self.best_bpdu.type):
+                        if delay:
                             port.sendBPDU(self.best_bpdu)
                             port.rpc = None
-                            if not net.evolving:
-                                port.setRole("Designated")
-                            
-                        elif port.id == self.root_port:
+                        port_status_changed += [port.setRole("Designated")]
+                        
+                    elif port.id == self.root_port:
+                        if delay:
                             port.rpc = self.best_bpdu.rpc
-                            if not net.evolving:
-                                port.setRole("Root Port")
-                        else:
+                        port_status_changed += [port.setRole("Root Port")]
+                    else:
+                        if delay:
                             port.rpc = None
-                            if not net.evolving:
-                                port.setRole("Undesignated")
+                        port_status_changed += [port.setRole("Undesignated")]
 
-            if self.best_bpdu.type:
-                self.launch()
-                self.setDelay()
+        if self.best_bpdu.type:
+            self.launch()
+            self.setDelay()
                 # print(f'Relaunch: {self.bid}')
+        port_changed = [s[1] for s in port_status_changed]
+        port_blocked = [s[0] == 'Blocked' for s in port_status_changed]
+        if any(port_changed) or all(port_blocked):
+            net.evolvs(True)
     
     def setDelay(self):
         self.timer = TC_PAUSE
@@ -256,6 +278,19 @@ class Bridge():
         if self.timer > 0:
             self.timer -= 1
         return self.timer == 0
+    
+    def reportSTP(self):
+            
+        root_id = "Этот мост - root" if self.root else ""
+        print(f"BID: {self.bid}. {root_id}")
+
+        row_format = "{:<8} {:<15} {:<15} {:<8}"
+        print("-" * 65)
+        print(row_format.format('Port', 'Role', 'Status', 'Cost', 'Cost-to-Root'))
+        print("-" * 65)
+        for p in sorted(self.ports, key=lambda x: x.id):
+            print(row_format.format(p.id, p.role, p.status, p.cost))
+        print()
         
 
 class Network():
@@ -274,11 +309,12 @@ class Network():
         10000: 2000
     }
 
-    def __init__(self, rstp=True):
+    def __init__(self, rstp=True, FORWARD_DELAY=FORWARD_DELAY):
         self.bridges = {}
         self.edges = []
         self.evolving = None
         self.rstp = rstp
+        self.FORWARD_DELAY = FORWARD_DELAY
 
     def evolvs(self, evolvs):
         self.evolving = evolvs
@@ -323,8 +359,8 @@ class Network():
 
     def connect(self, br1, port1, br2, port2, speed):
         cost = self.COST_MAP_RSTP[speed] if self.rstp else self.COST_MAP_STP[speed]
-        local = Port(port1, cost, self.rstp)
-        remote = Port(port2, cost, self.rstp)
+        local = Port(port1, cost, self.rstp, self.FORWARD_DELAY)
+        remote = Port(port2, cost, self.rstp, self.FORWARD_DELAY)
         local.setRemote(remote)
         remote.setRemote(local)
         br1.ports.append(local)
@@ -336,14 +372,22 @@ class Network():
 
         G = nx.Graph()
         G.add_edges_from([(br1.bid, br2.bid) for br1, br2, _, _, _ in self.edges])
-
+        status2c = {
+            "Blocked": 'b',
+            "Listening": 'li',
+            "Learning": 'le',
+            "Forwarding": 'f'
+        }
         positions = nx.kamada_kawai_layout(G, scale=3) #see
         edge_labels = {}
         for edge in self.edges:
             br1, br2, local, remote, cost = edge
-            edge_labels[(br1.bid, br2.bid)] = cost
-
-            # statuses = ('Blocked', 'Listening', 'Learning') 
+            gap = " "*1
+            if local.broken and remote.broken:
+                l = 'X'
+            else:
+                l = f"{status2c[local.status]}" + gap + f"{cost}" + gap + f"{status2c[remote.status]}"
+            edge_labels[(br1.bid, br2.bid)] = l
             if local.broken and remote.broken:
                 G.edges[br1.bid, br2.bid]['color'] = 'black'
             elif local.status == 'Forwarding' and remote.status == 'Forwarding' or br1.bid == br2.bid:

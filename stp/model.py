@@ -46,8 +46,9 @@ def find_convergence(num_nodes,
         max_steps,
         verbose=False,
         edgeid=None,
-        mystp=False,
-        rstp=True):
+        rstp=True,
+        FORWARD_DELAY=5,
+        log=False):
 
     assert num_nodes * (num_nodes - 1) / 2 >= num_edges
 
@@ -77,7 +78,7 @@ def find_convergence(num_nodes,
         port_list[local] += 1
         port_list[remote] += 1
         
-    net = Network(mystp=mystp, rstp=rstp)  
+    net = Network(rstp=rstp, FORWARD_DELAY=FORWARD_DELAY)  
 
     nodes = {}  
 
@@ -119,6 +120,9 @@ def find_convergence(num_nodes,
             br.processBPDUs(net)
         for br in net.getAllBridges():
             br.sendBPDUs(net)
+            if log:
+                print(f"Timestep = {step}")
+                br.reportSTP()
 
         if step and not net.evolving:          
             if verbose:
@@ -136,7 +140,7 @@ def find_convergence(num_nodes,
             else:
                 return net, convergence_1, subgraph_dim_1, step, subgraph_dim
                 
-    assert 'TIME LIMIT!'
+    
         
 
 def draw_stp(net, name_file,
@@ -156,7 +160,8 @@ def draw_stp(net, name_file,
         nx.draw_networkx_edge_labels(
                 G, positions,
                 edge_labels=edge_labels,
-                ax=ax)
+                ax=ax,
+                alpha=0.5)
         nx.draw(G, pos=positions, ax=ax, edge_color=colors)
 
         ax.set_title("Frame {}".format(step))
@@ -179,7 +184,7 @@ def draw_stp(net, name_file,
 
 
     # Build plot
-    fig, ax = plt.subplots(figsize=(25,15))
+    fig, ax = plt.subplots(figsize=(7,7))
 
     ani = animation.FuncAnimation(fig, simple_update, 
                                   frames=steps_convergence + 1,

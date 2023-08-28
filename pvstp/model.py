@@ -42,9 +42,11 @@ def find_convergence_vlan(
         max_steps,
         verbose,
         edgeid=None,
-        rstp=True):
+        rstp=True,
+        FORWARD_DELAY=5,
+        log=False):
 
-    net = Network(rstp=rstp)  
+    net = Network(rstp=rstp, FORWARD_DELAY=FORWARD_DELAY)  
 
     nodes = {}  
 
@@ -86,6 +88,9 @@ def find_convergence_vlan(
             br.processBPDUs(net)
         for br in net.getAllBridges():
             br.sendBPDUs(net)
+            if log:
+                print(f"Timestep = {step}")
+                br.reportSTP()
 
         if step and not net.evolving:          
             if verbose:
@@ -112,7 +117,9 @@ def find_convergence(
         vlans_n,
         verbose,
         edgeid=None,
-        rstp=True):
+        rstp=True,
+        FORWARD_DELAY=5,
+        log=False):
 
     assert num_nodes * (num_nodes - 1) / 2 >= num_edges
     assert vlans_n > 0
@@ -151,7 +158,9 @@ def find_convergence(
             max_steps,
             verbose,
             edgeid,
-            rstp=rstp)
+            rstp=rstp,
+            FORWARD_DELAY=FORWARD_DELAY,
+            log=log)
         
         if edgeid is None:
             net, c1, d1 = output
@@ -187,7 +196,8 @@ def draw_stp(nets,
         nx.draw_networkx_edge_labels(
                 G, positions,
                 edge_labels=edge_labels,
-                ax=ax)
+                ax=ax,
+                alpha=0.5)
         nx.draw(G, pos=positions, ax=ax, edge_color=edge_color, node_color=node_color)
 
         ax.set_title(f"Vlan {vlan} Frame {step}")
@@ -215,7 +225,7 @@ def draw_stp(nets,
         for br in net.getAllBridges():
             br.launch()
         # Build plot
-        fig, ax = plt.subplots(figsize=(8,8))
+        fig, ax = plt.subplots(figsize=(6,6))
         plt.title(vlan)
         ani = animation.FuncAnimation(fig, simple_update, 
                                     frames=steps_convergence + 1,

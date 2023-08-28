@@ -46,9 +46,13 @@ def find_convergence_msti(
         msti2vlan,
         edgeid=None,
         rstp=True,
-        verbose=False):
+        verbose=False,
+        log=False,
+        FORWARD_DELAY=5):
    
-    net = Network(rstp=rstp, bridge2vlan=bridge2vlan, vlans=msti2vlan[msti])  
+    net = Network(rstp=rstp, bridge2vlan=bridge2vlan,
+                  vlans=msti2vlan[msti],
+                  FORWARD_DELAY=FORWARD_DELAY)  
 
     nodes = {}  
 
@@ -91,6 +95,9 @@ def find_convergence_msti(
             br.processBPDUs(net)
         for br in net.getAllBridges():
             br.sendBPDUs(net)
+            if log:
+                print(f"Timestep = {step}")
+                br.reportSTP()
 
         if step and not net.evolving:          
             if verbose:
@@ -109,23 +116,18 @@ def find_convergence_msti(
                 
     assert 'TIME LIMIT!'
 
-def find_convergence(
+def build_graph(
         num_nodes,
         num_edges,
-        max_steps,
         vlans_n,
         trees_n,
-        regions_n,
-        verbose=False,
-        edgeid=None,
-        rstp=True):
-
+        regions_n):
+    
     assert num_nodes * (num_nodes - 1) / 2 >= num_edges
     assert vlans_n > 0
     assert vlans_n >= trees_n
     assert regions_n > 0
 
-    nets, c1s, d1s, c2s, d2s = [], [], [], [], []
     nodes = gen_nodes(num_nodes)
     all_pairs_of_nodes = list(itertools.combinations(nodes, 2))
 
@@ -143,19 +145,6 @@ def find_convergence(
     for node in nodes:
         mac_data += [(node, str(random.choice(range(1000))))]
 
-    region2bridge =  defaultdict(list)
-    for id in range(regions_n):
-        _, mac = mac_data[id]
-        region2bridge[id] += [mac]
-    for id in range(regions_n, num_nodes):
-        _, mac = mac_data[id]
-        region2bridge[random.choice(list(region2bridge.keys()))] += [mac]
-
-    bridge2region = {}
-    for region, lst in region2bridge.items():
-        for v in lst:
-            bridge2region[v] = region
-
     vlan2mac =  defaultdict(list)
     for id in range(vlans_n):
         _, mac = mac_data[id]
@@ -163,7 +152,94 @@ def find_convergence(
     for id in range(vlans_n, num_nodes):
         _, mac = mac_data[id]
         vlan2mac[random.choice(list(vlan2mac.keys()))] += [mac]
-        
+    params = {
+        'regions_n': regions_n,
+        'num_nodes': num_nodes,
+        'num_edges': num_edges,
+        'all_pairs_of_nodes': all_pairs_of_nodes,
+        'mac_data': mac_data,
+        'vlan2mac': vlan2mac,
+        'ids': ids,
+        'msti2vlan': msti2vlan
+    }
+    return params
+
+def designate_regions(
+    num_nodes=None,
+    regions_n=None,
+    mac_data=None,
+    all_pairs_of_nodes=None,
+    **kwargs):
+
+    # region2bridge = defaultdict(list)
+    # for id in range(regions_n):
+    #     _, mac = mac_data[id]
+    #     region2bridge[id] += [mac]
+    # for id in range(regions_n, num_nodes):
+    #     _, mac = mac_data[id]
+    #     region2bridge[random.choice(list(region2bridge.keys()))] += [mac]
+    assert regions_n < 2
+    bridge2region = {mac: 0 for name, mac in mac_data}
+    # for region, lst in region2bridge.items():
+    #     for v in lst:
+    #         bridge2region[v] = region
+    # # bridge2region = {}
+    # for name, mac in mac_data:
+    #     for pair in all_pairs_of_nodes:
+    #         if pair[0] == name:
+    #             break
+    
+    # region_cnts = defaultdict(int)
+    # region = 0
+    # names = [node[0] for node in mac_data]
+    # while region < regions_n:
+    #     curr_name = names[np.random.randint(len(names))]
+    #     names.remove(curr_name)
+    #     while region_cnts[region] < int(num_nodes / regions_n):
+    #         for pair in all_pairs_of_nodes:
+    #             if curr_name in set(pair):
+    #                 for name, mac in mac_data:
+    #                     if name in pair:
+    #                         mac0 = mac
+    #                         break
+    #                 for name, mac in mac_data:
+    #                     if name in pair and name != curr_name:
+    #                         mac1 = mac
+    #                         curr_name = name
+    #                         # if pair[1] in names:
+    #                             # names.remove(pair[1])
+    #                         break
+                            
+    #                 break        
+            
+            
+    #         if not mac0 in bridge2region or not mac1 in bridge2region:
+    #             bridge2region[mac0] = region
+    #             bridge2region[mac1] = region
+    #             region_cnts[region] += 1
+   
+    #     region += 1
+    
+    return bridge2region
+
+def find_convergence(
+        num_edges=None,
+        all_pairs_of_nodes=None,
+        ids=None,
+        max_steps=None,
+        mac_data=None,
+        vlan2mac=None,
+        bridge2region=None,
+        msti2vlan=None,
+        verbose=False,
+        edgeid=None,
+        rstp=True,
+        log=False,
+        FORWARD_DELAY=5,
+        **kwargs):
+
+    
+    nets, c1s, d1s, c2s, d2s = [], [], [], [], []
     for msti, vlans in msti2vlan.items():
         # будем считать, что в каждом VLAN одного дерева
         # мост имеет одинаковый приоритет
@@ -200,7 +276,9 @@ def find_convergence(
             msti2vlan,
             verbose=verbose,
             edgeid=edgeid,
-            rstp=rstp)
+            rstp=rstp,
+            log=log,
+            FORWARD_DELAY=FORWARD_DELAY)
         
         if edgeid is None:
             net, c1, d1 = output
@@ -216,14 +294,82 @@ def find_convergence(
             d2s.append(d2)
 
     if edgeid is None:
-        return nets, msti2vlan, region2bridge, c1s, d1s
+        return nets, msti2vlan, c1s, d1s
     else:
-        return nets, msti2vlan, region2bridge, c1s, d1s, c2s, d2s
+        return nets, msti2vlan, c1s, d1s, c2s, d2s
+
+def plot_graph(
+        mac_data=None,
+        num_edges=None,
+        all_pairs_of_nodes=None,
+        ids=None,
+        rstp=None,
+        vlan2mac=None,
+        bridge2vlan=None,
+        msti2vlan=None,
+        nodes_data=None,
+        **kwargs
+        ):
+    
+    # print(mac_data)
+    nodes_data = []
+    bridge2region = {}
+    bridge2vlan = defaultdict(list)
+    for node, mac in mac_data:
+        nodes_data += [(node, ('X', mac))]
+        bridge2vlan["".join(('X', mac))] += [0]
+        bridge2region[mac] = 0
+
+    edges_data = []
+    port_list = defaultdict(int)
+    for i in range(num_edges):
+        local, remote = all_pairs_of_nodes[ids[i]]
+        cost = gen_cost()
+        port_local = port_list[local]
+        port_remote = port_list[remote]
+        # будем считать, что мы выбрали самый маленькй cost из тех линков
+        # что есть между двумя коммутаторами
+        edges_data += [((local, port_local), (remote, port_remote), cost)]
+        port_list[local] += 1
+        port_list[remote] += 1
+        
+
+    net = Network(rstp=rstp, bridge2vlan=bridge2vlan,
+                  vlans=msti2vlan[0],
+                  FORWARD_DELAY=FORWARD_DELAY)  
+
+    nodes = {}  
+
+    for label, (priority, mac) in nodes_data:
+        nodes[label] = priority + mac
+
+    for s, d, speed in edges_data:
+
+        src_node = s[0]
+        src_port = s[1]
+        dst_node = d[0]
+        dst_port = d[1]
+        revision_level = 0
+        
+        g1 = net.getBridge(src_node, nodes[src_node], bridge2region[nodes[src_node][1:]], revision_level, 0) 
+        g2 = net.getBridge(dst_node, nodes[dst_node], bridge2region[nodes[dst_node][1:]], revision_level, 0)
+        net.connect(g1, src_port, g2, dst_port, speed)    
+
+    for br in net.getAllBridges():
+        br.launch()
+
+    fig, ax = plt.subplots(figsize=(10,10))
+    
+    G, positions, edge_labels, edge_color, node_color = net.drawG()
+    nx.draw_networkx_edge_labels(
+            G, positions,
+            edge_labels=edge_labels,
+            ax=ax)
+    nx.draw(G, pos=positions, ax=ax, edge_color=edge_color, node_color=node_color)
 
 def draw_stp(
         nets,
         msti2vlan,
-        region2bridge,
         name_file,
         steps_convergence,
         broke_times=None,
@@ -260,15 +406,14 @@ def draw_stp(
         for br in net.getAllBridges():
             br.processBPDUs(net)
             # print(br.best_bpdu)
-
-        
+                    
 
     for msti, vlans in msti2vlan.items():
         net = nets[msti]
         for br in net.getAllBridges():
             br.launch()
         # Build plot
-        fig, ax = plt.subplots(figsize=(20,20))
+        fig, ax = plt.subplots(figsize=(8,8))
         plt.title(msti)
         ani = animation.FuncAnimation(fig, simple_update, 
                                     frames=steps_convergence + 1,

@@ -48,14 +48,16 @@ def find_convergence(num_nodes,
         edgeid=None,
         rstp=True,
         FORWARD_DELAY=5,
-        log=False):
+        log=False,
+        root_in_center=False,
+        radius=False):
 
     assert num_nodes * (num_nodes - 1) / 2 >= num_edges
 
     nodes_data = []
     nodes = gen_nodes(num_nodes, verbose)
     for node in nodes:
-        nodes_data += [(node, (random.choice('01'), str(random.choice(range(1000)))))]
+        nodes_data += [(node, (random.choice('12'), str(random.choice(range(1000)))))]
 
     port_list = defaultdict(int)
 
@@ -100,16 +102,32 @@ def find_convergence(num_nodes,
         br.launch()
 
     G, _, _, _ = net.drawG()
+
+    deg_centrality = nx.degree_centrality(G)
+    if root_in_center:
+        root_node_bid = sorted(deg_centrality.items(), key=lambda x: -x[1])[0][0]
+        # for br in net.bridges:
+        #     if br.bid == root_node_bid:
+        #         br.bid = '9' + br.bid[1:]
+        new_bid = '0' + net.bridges[root_node_bid].bid[1:]
+        node = net.bridges[root_node_bid]
+        del net.bridges[root_node_bid]
+        node.bid = new_bid
+        net.bridges[new_bid] = node
+
+
     plt.close()
 
     subgraph_dim = None
+    subgraph_rad = None
     nb_nodes = G.number_of_nodes()
-    while not subgraph_dim and nb_nodes >= 2:
+    while not subgraph_dim and not subgraph_rad and nb_nodes >= 2:
         nb_nodes -= 1
         for SG in (G.subgraph(selected_nodes) for selected_nodes in itertools.combinations(G, nb_nodes)):
             # print(nb_nodes)
             if nx.is_connected(SG):
                 subgraph_dim = nx.diameter(SG)
+                subgraph_rad = nx.radius(SG)
                 break
     
     cutted = False
@@ -129,7 +147,10 @@ def find_convergence(num_nodes,
                 print(f'STOPPED! at {step}')
             # return net, step, subgraph_dim
             if edgeid is None:
-                return net, step, subgraph_dim
+                if radius:
+                    return net, step, subgraph_dim, subgraph_rad
+                else:
+                    return net, step, subgraph_dim
             
             elif not cutted:
                 cutted = True
